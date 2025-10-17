@@ -9,6 +9,7 @@ let userImage = null;
 let defaultImage = null;
 let isDefaultImage = true;
 let overlayImage = new Image();
+let processedImageCache = null; // Cache for desaturated image
 
 let scale = 1;
 let pos = { x: 0, y: 0 };
@@ -29,20 +30,42 @@ function loadDefaultImage() {
     defaultImage = new Image();
     defaultImage.crossOrigin = "anonymous";
     defaultImage.onload = () => {
-    userImage = defaultImage;
-    isDefaultImage = true;
-    scale = 1;
-    zoomSlider.value = scale;
-    pos = {
-        x: (canvas.width - defaultImage.width * scale) / 2 - 50,
-        y: (canvas.height - defaultImage.height * scale) / 2 + 500
-    };
-    draw();
-    zoomSlider.disabled = true;
-    resetBtn.disabled = true;
-    downloadBtn.disabled = true;
+        userImage = defaultImage;
+        isDefaultImage = true;
+        scale = 1;
+        zoomSlider.value = scale;
+        pos = {
+            x: (canvas.width - defaultImage.width * scale) / 2 - 50,
+            y: (canvas.height - defaultImage.height * scale) / 2 + 500
+        };
+        // Process and cache the image
+        processAndCacheImage(defaultImage);
+        draw();
+        zoomSlider.disabled = true;
+        resetBtn.disabled = true;
+        downloadBtn.disabled = true;
     };
     defaultImage.src = 'default-picture.png';
+}
+
+// Process and cache the desaturated image once
+function processAndCacheImage(sourceImage) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sourceImage.width;
+    tempCanvas.height = sourceImage.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Draw image to temp canvas
+    tempCtx.drawImage(sourceImage, 0, 0);
+
+    // Reduce saturation by overlaying grayscale version
+    tempCtx.globalCompositeOperation = 'saturation';
+    tempCtx.fillStyle = 'hsl(0, 0%, 50%)';
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    tempCtx.globalCompositeOperation = 'source-over';
+
+    // Cache the processed canvas
+    processedImageCache = tempCanvas;
 }
 
 function resetPosition() {
@@ -70,7 +93,7 @@ function draw() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Step 2: Draw user image with adjusted blend mode
-    if (userImage) {
+    if (userImage && processedImageCache) {
         const w = userImage.width * scale;
         const h = userImage.height * scale;
 
@@ -83,24 +106,9 @@ function draw() {
         pos.x = Math.min(maxX, Math.max(minX, pos.x));
         pos.y = Math.min(maxY, Math.max(minY, pos.y));
 
-        // Create a temporary canvas to desaturate and apply blend mode
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = w;
-        tempCanvas.height = h;
-        const tempCtx = tempCanvas.getContext('2d');
-
-        // Draw image to temp canvas
-        tempCtx.drawImage(userImage, 0, 0, w, h);
-
-        // Reduce saturation by overlaying grayscale version
-        tempCtx.globalCompositeOperation = 'saturation';
-        tempCtx.fillStyle = 'hsl(0, 0%, 50%)';
-        tempCtx.fillRect(0, 0, w, h);
-        tempCtx.globalCompositeOperation = 'source-over';
-
-        // Apply lighten blend mode
+        // Use the cached processed image (no temporary canvas needed!)
         ctx.globalCompositeOperation = 'lighten';
-        ctx.drawImage(tempCanvas, pos.x, pos.y);
+        ctx.drawImage(processedImageCache, 0, 0, processedImageCache.width, processedImageCache.height, pos.x, pos.y, w, h);
         ctx.globalCompositeOperation = 'source-over'; // Reset blend mode
     }
 
@@ -169,15 +177,17 @@ imageInput.addEventListener('change', function (e) {
 
     const reader = new FileReader();
     reader.onload = function (event) {
-    userImage = new Image();
-    userImage.onload = () => {
-        isDefaultImage = false; // User uploaded their own image
-        resetPosition();
-        zoomSlider.disabled = false;
-        resetBtn.disabled = false;
-        downloadBtn.disabled = false; // NOW enable download
-    };
-    userImage.src = event.target.result;
+        userImage = new Image();
+        userImage.onload = () => {
+            isDefaultImage = false; // User uploaded their own image
+            // Process and cache the image
+            processAndCacheImage(userImage);
+            resetPosition();
+            zoomSlider.disabled = false;
+            resetBtn.disabled = false;
+            downloadBtn.disabled = false; // NOW enable download
+        };
+        userImage.src = event.target.result;
     };
     reader.readAsDataURL(file);
 });
