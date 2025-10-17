@@ -9,20 +9,12 @@ let userImage = null;
 let defaultImage = null;
 let isDefaultImage = true;
 let overlayImage = new Image();
-let processedImageCache = null; // Cache for the desaturated image
 
 let scale = 1;
 let pos = { x: 0, y: 0 };
 let isDragging = false;
 let dragStart = { x: 0, y: 0 };
 let lastTouchDistance = null;
-
-// Performance optimization: Maximum image dimension to prevent mobile crashes
-const MAX_IMAGE_DIMENSION = 2000;
-
-// Throttle draw calls during interactions for better mobile performance
-let drawScheduled = false;
-let pendingDrawRequest = false;
 
 // Load the overlay image
 overlayImage.onload = () => {
@@ -70,45 +62,6 @@ function resetPosition() {
     draw();
 }
 
-// Process image with desaturation effect and cache it
-function processImage(sourceImage) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = sourceImage.width;
-    tempCanvas.height = sourceImage.height;
-    const tempCtx = tempCanvas.getContext('2d');
-
-    // Draw image to temp canvas
-    tempCtx.drawImage(sourceImage, 0, 0);
-
-    // Reduce saturation by overlaying grayscale version
-    tempCtx.globalCompositeOperation = 'saturation';
-    tempCtx.fillStyle = 'hsl(0, 0%, 50%)';
-    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-    tempCtx.globalCompositeOperation = 'source-over';
-
-    return tempCanvas;
-}
-
-// Throttled draw function for smooth mobile performance
-function throttledDraw() {
-    if (drawScheduled) {
-        pendingDrawRequest = true;
-        return;
-    }
-
-    drawScheduled = true;
-    requestAnimationFrame(() => {
-        draw();
-        drawScheduled = false;
-
-        // If another draw was requested while we were waiting, execute it now
-        if (pendingDrawRequest) {
-            pendingDrawRequest = false;
-            throttledDraw();
-        }
-    });
-}
-
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -130,14 +83,24 @@ function draw() {
         pos.x = Math.min(maxX, Math.max(minX, pos.x));
         pos.y = Math.min(maxY, Math.max(minY, pos.y));
 
-        // Use cached processed image or create it if not available
-        if (!processedImageCache) {
-            processedImageCache = processImage(userImage);
-        }
+        // Create a temporary canvas to desaturate and apply blend mode
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
 
-        // Apply lighten blend mode and scale during draw
+        // Draw image to temp canvas
+        tempCtx.drawImage(userImage, 0, 0, w, h);
+
+        // Reduce saturation by overlaying grayscale version
+        tempCtx.globalCompositeOperation = 'saturation';
+        tempCtx.fillStyle = 'hsl(0, 0%, 50%)';
+        tempCtx.fillRect(0, 0, w, h);
+        tempCtx.globalCompositeOperation = 'source-over';
+
+        // Apply lighten blend mode
         ctx.globalCompositeOperation = 'lighten';
-        ctx.drawImage(processedImageCache, 0, 0, processedImageCache.width, processedImageCache.height, pos.x, pos.y, w, h);
+        ctx.drawImage(tempCanvas, pos.x, pos.y);
         ctx.globalCompositeOperation = 'source-over'; // Reset blend mode
     }
 
@@ -206,21 +169,15 @@ imageInput.addEventListener('change', function (e) {
 
     const reader = new FileReader();
     reader.onload = function (event) {
-        const tempImage = new Image();
-        tempImage.onload = async () => {
-            // Downsample large images to prevent mobile crashes
-            userImage = await downsampleImage(tempImage, MAX_IMAGE_DIMENSION);
-
-            // Clear cached processed image when new image is loaded
-            processedImageCache = null;
-
-            isDefaultImage = false; // User uploaded their own image
-            resetPosition();
-            zoomSlider.disabled = false;
-            resetBtn.disabled = false;
-            downloadBtn.disabled = false; // NOW enable download
-        };
-        tempImage.src = event.target.result;
+    userImage = new Image();
+    userImage.onload = () => {
+        isDefaultImage = false; // User uploaded their own image
+        resetPosition();
+        zoomSlider.disabled = false;
+        resetBtn.disabled = false;
+        downloadBtn.disabled = false; // NOW enable download
+    };
+    userImage.src = event.target.result;
     };
     reader.readAsDataURL(file);
 });
@@ -251,7 +208,7 @@ canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     pos.x = (e.clientX - rect.left) * (canvas.width / rect.width) - dragStart.x;
     pos.y = (e.clientY - rect.top) * (canvas.height / rect.height) - dragStart.y;
-    throttledDraw();
+    draw();
 });
 
 window.addEventListener('mouseup', () => {
@@ -284,22 +241,22 @@ canvas.addEventListener('touchmove', e => {
     if (isDefaultImage) {
         return
     }
-
+    
     if (e.touches.length === 1 && isDragging) {
-        const rect = canvas.getBoundingClientRect();
-        pos.x = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width) - dragStart.x;
-        pos.y = (e.touches[0].clientY - rect.top) * (canvas.height / rect.height) - dragStart.y;
-        throttledDraw();
+    const rect = canvas.getBoundingClientRect();
+    pos.x = (e.touches[0].clientX - rect.left) * (canvas.width / rect.width) - dragStart.x;
+    pos.y = (e.touches[0].clientY - rect.top) * (canvas.height / rect.height) - dragStart.y;
+    draw();
     } else if (e.touches.length === 2) {
-        const currentDistance = getTouchDistance(e.touches);
-        if (lastTouchDistance) {
-            const delta = currentDistance / lastTouchDistance;
-            scale *= delta;
-            scale = Math.max(0.5, Math.min(3, scale));
-            zoomSlider.value = scale;
-            throttledDraw();
-        }
-        lastTouchDistance = currentDistance;
+    const currentDistance = getTouchDistance(e.touches);
+    if (lastTouchDistance) {
+        const delta = currentDistance / lastTouchDistance;
+        scale *= delta;
+        scale = Math.max(0.5, Math.min(3, scale));
+        zoomSlider.value = scale;
+        draw();
+    }
+    lastTouchDistance = currentDistance;
     }
 }, { passive: false });
 
@@ -316,48 +273,6 @@ function getTouchDistance(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
-}
-
-// Downsample large images to prevent mobile crashes
-function downsampleImage(sourceImage, maxDimension) {
-    const width = sourceImage.width;
-    const height = sourceImage.height;
-
-    // If image is already small enough, return it as-is
-    if (width <= maxDimension && height <= maxDimension) {
-        return sourceImage;
-    }
-
-    // Calculate new dimensions maintaining aspect ratio
-    let newWidth, newHeight;
-    if (width > height) {
-        newWidth = maxDimension;
-        newHeight = Math.round((height / width) * maxDimension);
-    } else {
-        newHeight = maxDimension;
-        newWidth = Math.round((width / height) * maxDimension);
-    }
-
-    // Create temporary canvas for downsampling
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = newWidth;
-    tempCanvas.height = newHeight;
-    const tempCtx = tempCanvas.getContext('2d');
-
-    // Use high-quality image smoothing
-    tempCtx.imageSmoothingEnabled = true;
-    tempCtx.imageSmoothingQuality = 'high';
-
-    // Draw downsampled image
-    tempCtx.drawImage(sourceImage, 0, 0, newWidth, newHeight);
-
-    // Create new image from downsampled canvas
-    const downsampledImage = new Image();
-    downsampledImage.src = tempCanvas.toDataURL('image/jpeg', 0.92);
-
-    return new Promise((resolve) => {
-        downsampledImage.onload = () => resolve(downsampledImage);
-    });
 }
 
 // Double-click to reset
