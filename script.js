@@ -31,7 +31,7 @@ function loadDefaultImage() {
     defaultImage.onload = () => {
     userImage = defaultImage;
     isDefaultImage = true;
-    scale = 1.4; // Zoom out to 70%
+    scale = 1;
     zoomSlider.value = scale;
     pos = {
         x: (canvas.width - defaultImage.width * scale) / 2 - 50,
@@ -42,7 +42,7 @@ function loadDefaultImage() {
     resetBtn.disabled = true;
     downloadBtn.disabled = true;
     };
-    defaultImage.src = 'https://images.squarespace-cdn.com/content/682f57827481367eb4ae3e19/75c59175-d63a-4fa8-a5fd-6cdd0ef72bf0/default-preview.png';
+    defaultImage.src = 'default-picture.png';
 }
 
 function resetPosition() {
@@ -81,23 +81,51 @@ function draw() {
     ctx.drawImage(userImage, pos.x, pos.y, w, h);
     }
 
-    // Apply radial gradient underneath the overlay
-    // Position: 52.05% horizontal, 0% vertical
+    // Apply elliptical radial gradient mask underneath the overlay
+    // Save current state
+    ctx.save();
+
+    // Create elliptical gradient by scaling the canvas
+    // Position: 52.05% horizontal, 0% vertical (top)
     const centerX = canvas.width * 0.5205;
     const centerY = 0;
 
-    // Radii: 117.3% width, 74.99% height (elliptical)
+    // Calculate ellipse radii based on Figma values
+    // 117.3% width, 74.99% height from the gradient center
     const radiusX = canvas.width * 1.173;
     const radiusY = canvas.height * 0.7499;
-    const radius = Math.max(radiusX, radiusY);
 
-    const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    // Transform canvas to create elliptical effect
+    // Move to center point, scale, then move back
+    ctx.translate(centerX, centerY);
+    ctx.scale(1, radiusY / radiusX); // Scale Y to create ellipse
+    ctx.translate(-centerX, -centerY * (radiusX / radiusY));
+
+    // Create circular gradient (will be elliptical due to scale)
+    const gradient = ctx.createRadialGradient(
+        centerX,
+        centerY * (radiusX / radiusY),
+        0,
+        centerX,
+        centerY * (radiusX / radiusY),
+        radiusX
+    );
+
+    // Color stops: transparent from 0-45%, then fade to solid red at 100%
     gradient.addColorStop(0, 'rgba(235, 37, 44, 0)');
     gradient.addColorStop(0.45, 'rgba(235, 37, 44, 0)');
-    gradient.addColorStop(1, '#EB252C');
+    gradient.addColorStop(1, 'rgba(235, 37, 44, 1)');
 
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height * (radiusX / radiusY)
+    );
+
+    // Restore canvas state
+    ctx.restore();
 
     // Draw the overlay on top
     ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
