@@ -65,49 +65,76 @@ function resetPosition() {
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Step 1: Draw solid red background
+    ctx.fillStyle = '#EB252C';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Step 2: Draw user image with adjusted blend mode
     if (userImage) {
-    const w = userImage.width * scale;
-    const h = userImage.height * scale;
+        const w = userImage.width * scale;
+        const h = userImage.height * scale;
 
-    // Snap boundaries (no white gaps)
-    const minX = Math.min(0, canvas.width - w);
-    const minY = Math.min(0, canvas.height - h);
-    const maxX = Math.max(0, canvas.width - w);
-    const maxY = Math.max(0, canvas.height - h);
+        // Snap boundaries (no white gaps)
+        const minX = Math.min(0, canvas.width - w);
+        const minY = Math.min(0, canvas.height - h);
+        const maxX = Math.max(0, canvas.width - w);
+        const maxY = Math.max(0, canvas.height - h);
 
-    pos.x = Math.min(maxX, Math.max(minX, pos.x));
-    pos.y = Math.min(maxY, Math.max(minY, pos.y));
+        pos.x = Math.min(maxX, Math.max(minX, pos.x));
+        pos.y = Math.min(maxY, Math.max(minY, pos.y));
 
-    ctx.drawImage(userImage, pos.x, pos.y, w, h);
+        // Create a temporary canvas to desaturate and apply blend mode
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // Draw image to temp canvas
+        tempCtx.drawImage(userImage, 0, 0, w, h);
+
+        // Reduce saturation by overlaying grayscale version
+        tempCtx.globalCompositeOperation = 'saturation';
+        tempCtx.fillStyle = 'hsl(0, 0%, 50%)';
+        tempCtx.fillRect(0, 0, w, h);
+        tempCtx.globalCompositeOperation = 'source-over';
+
+        // Apply lighten blend mode
+        ctx.globalCompositeOperation = 'lighten';
+        ctx.drawImage(tempCanvas, pos.x, pos.y);
+        ctx.globalCompositeOperation = 'source-over'; // Reset blend mode
     }
 
-    // Apply elliptical radial gradient mask underneath the overlay
-    // Save current state
+    // Step 3: Apply elliptical radial gradient (only in the specified rectangle area)
+    // From Figma: Rectangle at top:485px, height:865px, gradient at 52.05% 0% (relative)
     ctx.save();
 
-    // Create elliptical gradient by scaling the canvas
-    // Position: 52.05% horizontal, 0% vertical (top)
-    const centerX = canvas.width * 0.5205;
-    const centerY = 0;
+    // Clip to the gradient rectangle area
+    const rectTop = 485;
+    const rectHeight = 865;
+    ctx.beginPath();
+    ctx.rect(0, rectTop, canvas.width, rectHeight);
+    ctx.clip();
 
-    // Calculate ellipse radii based on Figma values
-    // 117.3% width, 74.99% height from the gradient center
+    // Gradient center position (52.05% horizontal, at top of rectangle)
+    const centerX = canvas.width * 0.5205;
+    const centerY = rectTop; // Top of the gradient rectangle
+
+    // Calculate ellipse radii based on Figma values (117.3% width, 74.99% height)
     const radiusX = canvas.width * 1.173;
-    const radiusY = canvas.height * 0.7499;
+    const radiusY = rectHeight * 0.7499;
 
     // Transform canvas to create elliptical effect
-    // Move to center point, scale, then move back
     ctx.translate(centerX, centerY);
-    ctx.scale(1, radiusY / radiusX); // Scale Y to create ellipse
-    ctx.translate(-centerX, -centerY * (radiusX / radiusY));
+    ctx.scale(1, radiusY / radiusX);
+    ctx.translate(-centerX, -centerY);
 
     // Create circular gradient (will be elliptical due to scale)
     const gradient = ctx.createRadialGradient(
         centerX,
-        centerY * (radiusX / radiusY),
+        centerY,
         0,
         centerX,
-        centerY * (radiusX / radiusY),
+        centerY,
         radiusX
     );
 
@@ -117,17 +144,12 @@ function draw() {
     gradient.addColorStop(1, 'rgba(235, 37, 44, 1)');
 
     ctx.fillStyle = gradient;
-    ctx.fillRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height * (radiusX / radiusY)
-    );
+    ctx.fillRect(-canvas.width, -canvas.height, canvas.width * 3, canvas.height * 3);
 
     // Restore canvas state
     ctx.restore();
 
-    // Draw the overlay on top
+    // Step 4: Draw the overlay on top
     ctx.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
 }
 
